@@ -538,8 +538,8 @@ impl CPU {
     }
     
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x8000 .. (0x8000 + program.len())].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, 0x8000);
+        self.memory[0x0600 .. (0x0600 + program.len())].copy_from_slice(&program[..]);
+        self.mem_write_u16(0xFFFC, 0x0600);
     }
     
     pub fn load_and_run(&mut self, program: Vec<u8>) {
