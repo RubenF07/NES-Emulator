@@ -183,6 +183,8 @@ pub static ref OPS_CODE_MAP: HashMap<u8, OpCode> = {
     
     m.insert(0x60, OpCode::new(0x60, "RTS", 1, AddressingMode::NoneAddresssing));
 
+    m.insert(0x40, OpCode::new(0x40, "RTI", 1, AddressingMode::NoneAddresssing));
+
     m.insert(0xe9, OpCode::new(0xe9, "SBC", 2, AddressingMode::Immediate));
     m.insert(0xe5, OpCode::new(0xe5, "SBC", 2, AddressingMode::ZeroPage));
     m.insert(0xf5, OpCode::new(0xf5, "SBC", 2, AddressingMode::ZeroPage_X));

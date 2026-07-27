@@ -334,6 +334,16 @@ impl CPU {
         
         self.status.set(CpuFlags::NEGATIVE, res & 0b1000_0000 != 0);
     }
+
+    // Return from interrupt
+    fn rti(&mut self){
+        self.status = CpuFlags::from_bits_retain(self.stack_pop());
+        
+        self.status.remove(CpuFlags::BREAK);
+        self.status.remove(CpuFlags::BREAK2);
+
+        self.program_counter = self.stack_pop_u16();
+    }
     
     // Return from subroutine
     fn rts(&mut self){
@@ -443,13 +453,15 @@ impl CPU {
     }
 
     // Branch if carry clear
-    fn branch(&mut self, condition:bool){
+    // returns true if branched
+    fn branch(&mut self, condition:bool) -> bool{
         if condition{
             let jump: i8 = self.mem_read(self.program_counter) as i8;
             let jump_addr = self.program_counter.wrapping_add(1).wrapping_add(jump as u16);
 
             self.program_counter = jump_addr;
         }
+        return condition
     }
 
     // Compare values
@@ -481,8 +493,8 @@ impl CPU {
     }
 
     fn stack_pop_u16(&mut self) -> u16{
-        let hi = self.stack_pop() as u16;
         let lo = self.stack_pop() as u16;
+        let hi = self.stack_pop() as u16;
 
         return (hi << 8) | lo;
     }
@@ -493,7 +505,7 @@ impl CPU {
     // Memory
     // ------------------------------------
     
-    fn mem_read(&mut self, addr: u16) -> u8 {
+    pub fn mem_read(&self, addr: u16) -> u8 {
         self.memory[addr as usize]
     }
     
@@ -513,7 +525,7 @@ impl CPU {
         self.mem_write(pos + 1, hi);
     }
     
-    fn mem_write(&mut self, addr: u16, data: u8) {
+    pub fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
     }
     
@@ -536,15 +548,25 @@ impl CPU {
         self.run();
     }
     
-    pub fn run(&mut self) {
+    pub fn run(&mut self){
+        self.run_with_callback(|_| {});
+    }
+
+    pub fn run_with_callback<F>(&mut self, mut callback: F) 
+    where F: FnMut(&mut CPU),
+    {
         loop {
+            callback(self);
+            
             let opscode = self.mem_read(self.program_counter);
             self.program_counter += 1;
-
+            
             let ops_spec = OPS_CODE_MAP.get(&opscode).expect(("Invalid OPS Code: ".to_string()+&opscode.to_string()).as_str());
             let mode = &ops_spec.mode;
             let count_inc = ops_spec.bytes as u16;
 
+            let mut jumpped = false;
+            
             // println!("code: {:?}, mode: {:?}, bytes: {:?}");
             
             match opscode{
@@ -559,34 +581,34 @@ impl CPU {
                 0x06 | 0x16 | 0x0e | 0x1e => self.asl(mode),
 
                 // BCC
-                0x90 => self.branch(!self.status.contains(CpuFlags::CARRY)),
+                0x90 => {jumpped = self.branch(!self.status.contains(CpuFlags::CARRY))},
                 
                 // BCS
-                0xb0 => self.branch(self.status.contains(CpuFlags::CARRY)),
+                0xb0 => {jumpped = self.branch(self.status.contains(CpuFlags::CARRY))},
                 
                 // BEQ
-                0xf0 => self.branch(self.status.contains(CpuFlags::ZERO)),
+                0xf0 => {jumpped = self.branch(self.status.contains(CpuFlags::ZERO))},
 
                 // BIT
                 0x24 | 0x2c => self.bit(mode),
 
                 // BMI
-                0x30 => self.branch(self.status.contains(CpuFlags::NEGATIVE)),
+                0x30 => {jumpped = self.branch(self.status.contains(CpuFlags::NEGATIVE))},
 
                 // BNE
-                0xd0 => self.branch(!self.status.contains(CpuFlags::ZERO)),
+                0xd0 => {jumpped = self.branch(!self.status.contains(CpuFlags::ZERO))},
 
                 // BPL
-                0x10 => self.branch(!self.status.contains(CpuFlags::NEGATIVE)),
+                0x10 => {jumpped = self.branch(!self.status.contains(CpuFlags::NEGATIVE))},
                 
                 // BRK
                 0x00 => return,
                 
                 // BVC
-                0x50 => self.branch(!self.status.contains(CpuFlags::OVERFLOW)),
+                0x50 => {jumpped = self.branch(!self.status.contains(CpuFlags::OVERFLOW))},
                 
                 // BVS
-                0x70 => self.branch(self.status.contains(CpuFlags::OVERFLOW)),
+                0x70 => {jumpped = self.branch(self.status.contains(CpuFlags::OVERFLOW))},
 
                 // CLC
                 0x18 => self.status.remove(CpuFlags::CARRY),
@@ -630,11 +652,11 @@ impl CPU {
                 0xc8 => self.iny(),
 
                 // JMP
-                0x4c => self.jmp_absolute(),
-                0x6c => self.jmp_indirect(),
+                0x4c => {self.jmp_absolute(); jumpped = true},
+                0x6c => {self.jmp_indirect(); jumpped = true},
 
                 // JSR
-                0x20 => self.jsr(),
+                0x20 => {self.jsr(); jumpped = true},
                 
                 // LDA
                 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1  => self.lda(mode),
@@ -675,8 +697,11 @@ impl CPU {
                 0x6a => self.ror_accumulator(),
                 0x66 | 0x76 | 0x6e | 0x7e => self.ror(mode),
 
+                // RTI
+                0x40 => {self.rti(); jumpped = true}
+
                 // RTS
-                0x60 => self.rts(),
+                0x60 => {self.rts(); jumpped = true},
 
                 // SBC
                 0xe9 | 0xe5 | 0xf5 | 0xed | 0xfd | 0xf9 | 0xe1 | 0xf1 => self.sbc(mode),
@@ -718,7 +743,9 @@ impl CPU {
                 
                 _ => todo!()
             }
-            self.program_counter += count_inc - 1;
+            if !jumpped{
+                self.program_counter += count_inc - 1;
+            }
         }
     }
     
