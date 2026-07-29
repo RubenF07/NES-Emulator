@@ -1,0 +1,96 @@
+use crate::cpu::Mem;
+use crate::cartridge::Rom;
+
+//  _______________ $10000  _______________
+// | PRG-ROM       |       |               |
+// | Upper Bank    |       |               |
+// |_ _ _ _ _ _ _ _| $C000 | PRG-ROM       |
+// | PRG-ROM       |       |               |
+// | Lower Bank    |       |               |
+// |_______________| $8000 |_______________|
+// | SRAM          |       | SRAM          |
+// |_______________| $6000 |_______________|
+// | Expansion ROM |       | Expansion ROM |
+// |_______________| $4020 |_______________|
+// | I/O Registers |       |               |
+// |_ _ _ _ _ _ _ _| $4000 |               |
+// | Mirrors       |       | I/O Registers |
+// | $2000-$2007   |       |               |
+// |_ _ _ _ _ _ _ _| $2008 |               |
+// | I/O Registers |       |               |
+// |_______________| $2000 |_______________|
+// | Mirrors       |       |               |
+// | $0000-$07FF   |       |               |
+// |_ _ _ _ _ _ _ _| $0800 |               |
+// | RAM           |       | RAM           |
+// |_ _ _ _ _ _ _ _| $0200 |               |
+// | Stack         |       |               |
+// |_ _ _ _ _ _ _ _| $0100 |               |
+// | Zero Page     |       |               |
+// |_______________| $0000 |_______________|
+
+
+pub struct Bus{
+    cpu_vram: [u8; 0x0800], // 2048
+    rom: Rom,
+}
+
+impl Bus{
+    pub fn new(rom: Rom) -> Self{
+        Bus{
+            cpu_vram: [0; 0x0800],
+            rom: rom,
+        }
+    }
+
+    fn read_prg_rom(&self, mut addr: u16) -> u8{
+        addr -= 0x8000;
+
+        if self.rom.prg_rom.len() == 0x4000 && addr >= 0x4000{
+            addr = addr % 0x4000; // mirror down for 16Kib programs
+        }
+        return self.rom.prg_rom[addr as usize]
+    }
+}
+
+const RAM: u16 = 0x0000;
+const RAM_MIRRORS_END: u16 = 0x1FFF;
+const PPU_REGISTERS: u16 = 0x2000;
+const PPU_REGISTERS_MIRRORS_END: u16 = 0x3FFF;
+
+impl Mem for Bus{
+    fn mem_read(&self, addr: u16) -> u8{
+        match addr{
+            RAM ..= RAM_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b00000111_11111111;
+                return self.cpu_vram[mirror_down_addr as usize]
+            }
+            PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b00100000_00000111;
+                return self.rom.chr_rom[mirror_down_addr as usize]
+            }
+            0x8000..=0xffff => self.read_prg_rom(addr),
+            _ => {
+                println!("Invalid mem access {}", addr);
+                return 0;
+            }
+        }
+    }
+
+    fn mem_write(&mut self, addr: u16, data: u8) {
+        match addr{
+            RAM ..= RAM_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b00000111_11111111;
+                self.cpu_vram[mirror_down_addr as usize] = data;
+            }
+            PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b00100000_00000111;
+                todo!("PPU not supported yet")
+            }
+            0x8000..=0xffff => panic!("Attempted to cartridge ROM"),
+            _ => {
+                println!("Invalid mem write {}", addr);
+            }
+        }
+    }
+}
