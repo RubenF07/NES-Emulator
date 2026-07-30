@@ -71,7 +71,7 @@ impl Mem for Bus{
             }
             0x8000..=0xffff => self.read_prg_rom(addr),
             _ => {
-                println!("Invalid mem access {}", addr);
+                println!("Invalid mem access ${:04x}", addr);
                 return 0;
             }
         }
@@ -89,7 +89,7 @@ impl Mem for Bus{
             }
             0x8000..=0xffff => panic!("Attempted to cartridge ROM"),
             _ => {
-                println!("Invalid mem write {}", addr);
+                println!("Invalid mem write ${:04}", addr);
             }
         }
     }

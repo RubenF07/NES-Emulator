@@ -145,7 +145,7 @@ impl CPU {
         let res = val << 1;
         self.mem_write(addr, res);
         
-        self.status.set(CpuFlags::NEGATIVE, res & 0b1000_0000 != 0);
+        self.update_zero_and_negative_flags(res);
     }
     
     // Bit test
@@ -331,7 +331,7 @@ impl CPU {
         self.status = CpuFlags::from_bits_retain(self.stack_pop());
         
         self.status.remove(CpuFlags::BREAK);
-        self.status.remove(CpuFlags::BREAK2);
+        self.status.insert(CpuFlags::BREAK2);
     }
     
     // Rotate left
@@ -355,23 +355,23 @@ impl CPU {
     
     // Rotate right
     fn ror_accumulator(&mut self){
-        self.status.set(CpuFlags::CARRY, self.register_a & 1 == 1);
-        
         let carry = (self.status.contains(CpuFlags::CARRY) as u8) << 7;
         
-        self.set_register_a((self.register_a >> 1) + carry);
+        self.status.set(CpuFlags::CARRY, self.register_a & 1 == 1);
+        self.set_register_a((self.register_a >> 1) | carry);
     }
-    fn ror(&mut self, mode: &AddressingMode){
+    fn ror(&mut self, mode: &AddressingMode) -> u8 {
         let addr = self.get_operand_address(mode);
         let val = self.mem_read(addr);
         
+        let old_carry = self.status.contains(CpuFlags::CARRY);
         self.status.set(CpuFlags::CARRY, val & 1 == 1);
         
-        let carry = (self.status.contains(CpuFlags::CARRY) as u8) << 7;
-        let res = (val >> 1) + carry;
+        let res = (val >> 1) | (old_carry as u8) << 7;
         self.mem_write(addr, res);
         
         self.status.set(CpuFlags::NEGATIVE, res & 0b1000_0000 != 0);
+        return res;
     }
 
     // Return from interrupt
@@ -379,7 +379,7 @@ impl CPU {
         self.status = CpuFlags::from_bits_retain(self.stack_pop());
         
         self.status.remove(CpuFlags::BREAK);
-        self.status.remove(CpuFlags::BREAK2);
+        self.status.insert(CpuFlags::BREAK2);
 
         self.program_counter = self.stack_pop_u16();
     }
@@ -763,7 +763,7 @@ impl CPU {
                 
                 // ROR
                 0x6a => self.ror_accumulator(),
-                0x66 | 0x76 | 0x6e | 0x7e => self.ror(mode),
+                0x66 | 0x76 | 0x6e | 0x7e => {self.ror(mode);},
 
                 // RTI
                 0x40 => {self.rti(); jumpped = true}
@@ -859,8 +859,8 @@ impl CPU {
 
                 // RRA
                 0x67 | 0x77 | 0x6f | 0x7f | 0x7b | 0x63 | 0x73 => {
-                    self.ror(mode);
-                    self.adc(mode);
+                    let val = self.ror(mode);
+                    self.add_to_register_a(val);
                 }
 
                 // SLO
