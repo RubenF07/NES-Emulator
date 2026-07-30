@@ -39,7 +39,7 @@ pub struct CPU {
     pub bus: Bus
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum AddressingMode {
     Immediate,
@@ -51,7 +51,8 @@ pub enum AddressingMode {
     Absolute_Y,
     Indirect_X,
     Indirect_Y,
-    NoneAddresssing,
+    NoneAddressing,
+    Accumulator,
 }
 
 pub trait Mem{
@@ -60,7 +61,7 @@ pub trait Mem{
     fn mem_write(&mut self, addr: u16, data: u8);
 
     // read Little-Endian 16bit vals
-    fn mem_read_u16(&mut self, pos: u16) -> u16 {
+    fn mem_read_u16(&self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
         let hi = self.mem_read(pos + 1) as u16;
         return (hi << 8) | (lo as u16)
@@ -85,7 +86,7 @@ impl Mem for CPU{
         self.bus.mem_write(addr, data);
     }
     
-    fn mem_read_u16(&mut self, addr: u16) -> u16 {
+    fn mem_read_u16(&self, addr: u16) -> u16 {
         self.bus.mem_read_u16(addr)
     }
 
@@ -395,7 +396,7 @@ impl CPU {
     fn sbc(&mut self, mode: &AddressingMode){
         let addr = self.get_operand_address(mode);
         let val = self.mem_read(addr);
-
+        
         let b_neg = (val as i8).wrapping_neg().wrapping_sub(1);
 
         self.add_to_register_a(b_neg as u8);
@@ -432,6 +433,55 @@ impl CPU {
     // Transfer stack pointer to X
     fn tsx(&mut self){
         self.set_register_x(self.stack_pointer);
+    }
+    
+    // Unofficial codes
+    
+    // AND, ROR, bit change
+    fn arr(&mut self, mode: &AddressingMode){
+        self.and(mode);
+        self.ror(mode);
+        
+        let res = self.register_a;
+        
+        let (bit5,bit6) = ((res >> 5) & 0b1, (res >> 6) & 0b1);
+        
+        self.status.set(CpuFlags::CARRY, bit5 == 1);
+        self.status.set(CpuFlags::OVERFLOW, (bit6 ^ bit5) == 1);
+    }
+    
+    // X AND A - val
+    fn axs(&mut self, mode: &AddressingMode){
+        let addr = self.get_operand_address(mode);
+        let val = self.mem_read(addr);
+        
+        let and_val = self.register_x & self.register_a;
+        self.set_register_x(and_val.wrapping_sub(val));
+        
+        self.status.set(CpuFlags::CARRY, val <= and_val);
+    }
+    
+    // X AND A to mem
+    fn sax(&mut self, mode: &AddressingMode){
+        let addr = self.get_operand_address(mode);
+        
+        self.mem_write(addr, self.register_a & self.register_x);
+    }
+    
+    // X AND HIGH(arg) + 1
+    fn shx(&mut self){
+        let addr = self.mem_read_u16(self.program_counter).wrapping_add(self.register_y as u16);
+
+        let val = self.register_x & ((addr >> 8) as u8 + 1);
+        self.mem_write(addr, val);   
+    }
+    
+    // X AND HIGH(arg) + 1
+    fn shy(&mut self){
+        let addr = self.mem_read_u16(self.program_counter).wrapping_add(self.register_x as u16);
+
+        let val = self.register_y & ((addr >> 8) as u8 + 1);
+        self.mem_write(addr, val);   
     }
 
     // ------------------------------------
@@ -630,7 +680,8 @@ impl CPU {
                 // CLC
                 0x18 => self.status.remove(CpuFlags::CARRY),
                 
-                // CLD - skipped
+                // CLD
+                0xd8 => self.status.remove(CpuFlags::DECIMAL_MODE),
                 
                 // CLI
                 0x58 => self.status.remove(CpuFlags::INTERRUPT_DISABLE),
@@ -726,7 +777,8 @@ impl CPU {
                 // SEC
                 0x38 => self.status.insert(CpuFlags::CARRY),
 
-                // SED - skipped
+                // SED
+                0xf8 => self.status.insert(CpuFlags::DECIMAL_MODE),
 
                 // SEI
                 0x78 => self.status.insert(CpuFlags::INTERRUPT_DISABLE),
@@ -758,6 +810,89 @@ impl CPU {
                 // TYA
                 0x98 => self.set_register_a(self.register_y), 
                 
+                // Unofficial Codes
+
+                // ALR
+                0x4b => {
+                    self.and(mode);
+                    self.lsr(mode);
+                }
+
+                // ANC
+                0x0b | 0x2b => {
+                    self.and(mode);
+                    self.status.set(CpuFlags::CARRY, self.status.contains(CpuFlags::NEGATIVE));
+                }
+                
+                // ARR
+                0x6b => self.arr(mode),
+
+                // AXS
+                0xcb => self.axs(mode),
+
+                // LAX
+                0xa7 | 0xb7 | 0xaf | 0xbf | 0xa3 | 0xb3 => {
+                    self.lda(mode);
+                    self.tax();
+                }
+
+                // SAX
+                0x87 | 0x97 | 0x83 | 0x8f => self.sax(mode),
+
+                // DCP
+                0xc7 | 0xd7 | 0xcf | 0xdf | 0xdb | 0xc3 | 0xd3 => {
+                    self.dec(mode);
+                    self.compare(mode, self.register_a);
+                }
+
+                // ISC
+                0xe7 |0xf7 |0xef |0xff |0xfb |0xe3 |0xf3 => {
+                    self.inc(mode);
+                    self.sbc(mode);
+                }
+
+                // RLA
+                0x27 | 0x37 | 0x2f | 0x3f | 0x3b | 0x23 | 0x33 => {
+                    self.rol(mode);
+                    self.and(mode);
+                }
+
+                // RRA
+                0x67 | 0x77 | 0x6f | 0x7f | 0x7b | 0x63 | 0x73 => {
+                    self.ror(mode);
+                    self.adc(mode);
+                }
+
+                // SLO
+                0x07 | 0x17 | 0x0f | 0x1f | 0x1b | 0x03 | 0x13 => {
+                    self.asl(mode);
+                    self.ora(mode);
+                }
+
+                // SRE
+                0x47 | 0x57 | 0x4f | 0x5f | 0x5b | 0x43 | 0x53 => {
+                    self.lsr(mode);
+                    self.eor(mode);
+                }
+
+                // SBC - Duplicate
+                0xeb => self.sbc(mode),
+
+                // SHX
+                0x9e => self.shx(),
+                
+                // SHY
+                0x9c => self.shy(),
+
+                // NOP - more
+                0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa => {}
+
+                // SKB
+                0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 => {}
+
+                // IGN
+                0x0c | 0x1c | 0x3c | 0x5c | 0x7c | 0xdc | 0xfc | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74 | 0xd4 | 0xf4 => {}
+
                 _ => todo!()
             }
             if !jumpped{
@@ -770,27 +905,33 @@ impl CPU {
     // Adressing
     // ------------------------------------
 
-    fn get_operand_address(&mut self, mode: &AddressingMode) -> u16 {
+    fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
+        self.get_op_addr_offset(mode, 0)
+    }
+   
+    pub fn get_op_addr_offset(&self, mode: &AddressingMode, offset: u16) -> u16{
+        let pc_val = self.program_counter + offset;
+
         match mode {
             // [OPS] #$01
-            AddressingMode::Immediate => self.program_counter,
+            AddressingMode::Immediate => pc_val,
 
             // [OPS] $01
-            AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
+            AddressingMode::ZeroPage => self.mem_read(pc_val) as u16,
 
             // [OPS] $0100
-            AddressingMode::Absolute => self.mem_read_u16(self.program_counter),
+            AddressingMode::Absolute => self.mem_read_u16(pc_val),
     
             // [OPS] $01, X
             AddressingMode::ZeroPage_X => {
-                let pos = self.mem_read(self.program_counter);
+                let pos = self.mem_read(pc_val);
                 let addr = pos.wrapping_add(self.register_x) as u16;
                 return addr
             },
             
             // [OPS] $01, Y
             AddressingMode::ZeroPage_Y => {
-                let pos = self.mem_read(self.program_counter);
+                let pos = self.mem_read(pc_val);
                 let addr = pos.wrapping_add(self.register_y) as u16;
                 return addr
             },
@@ -798,7 +939,7 @@ impl CPU {
             // [OPS] $0100, X
             // [OPS] $[0100 + X_value]
             AddressingMode::Absolute_X => {
-                let base = self.mem_read_u16(self.program_counter);
+                let base = self.mem_read_u16(pc_val);
                 let addr = base.wrapping_add(self.register_x as u16);
                 return addr
             },
@@ -806,7 +947,7 @@ impl CPU {
             // [OPS] $0100, Y
             // [OPS] $[0100 + Y_value]
             AddressingMode::Absolute_Y => {
-                let base = self.mem_read_u16(self.program_counter);
+                let base = self.mem_read_u16(pc_val);
                 let addr = base.wrapping_add(self.register_y as u16);
                 return addr
             },
@@ -814,7 +955,7 @@ impl CPU {
             // [OPS] ($40, X)
             // [OPS] $[$[40 + X_value]: u16]
             AddressingMode::Indirect_X => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(pc_val);
 
                 let ptr: u8 = (base as u8).wrapping_add(self.register_x);
                 let lo = self.mem_read(ptr as u16);
@@ -825,7 +966,7 @@ impl CPU {
             // [OPS] ($40), Y
             // [OPS] $[$40:u16 + Y_value]
             AddressingMode::Indirect_Y => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(pc_val);
 
                 let lo = self.mem_read(base as u16);
                 let hi = self.mem_read(base.wrapping_add(1) as u16);
@@ -834,13 +975,12 @@ impl CPU {
                 return deref
             },
 
-            AddressingMode::NoneAddresssing => {
+            AddressingMode::NoneAddressing | AddressingMode::Accumulator => {
                 panic!("mode {:?} is not supported", mode);
             }
             
         }
     }
-    
 }
 
 

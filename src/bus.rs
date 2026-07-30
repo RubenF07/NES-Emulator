@@ -84,7 +84,7 @@ impl Mem for Bus{
                 self.cpu_vram[mirror_down_addr as usize] = data;
             }
             PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
-                let mirror_down_addr = addr & 0b00100000_00000111;
+                // let mirror_down_addr = addr & 0b00100000_00000111;
                 todo!("PPU not supported yet")
             }
             0x8000..=0xffff => panic!("Attempted to cartridge ROM"),

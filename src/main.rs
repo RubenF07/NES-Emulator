@@ -14,6 +14,7 @@ pub mod cpu;
 pub mod opcodes;
 pub mod bus;
 pub mod cartridge;
+pub mod trace;
 
 
 #[macro_use]
@@ -100,13 +101,14 @@ fn main() {
     
 
     // load program
-    let bytes: Vec<u8> = std::fs::read("snake.nes").unwrap();
+    let bytes: Vec<u8> = std::fs::read("nestest.nes").unwrap();
     let rom = Rom::new(&bytes).unwrap();
 
 
     let mut cpu = CPU::new(Bus::new(rom));
     // cpu.load(game_code);
     cpu.reset();
+    cpu.program_counter = 0xc000;
 
     // handle screen
     let mut screen_state = [0 as u8; 32 * 32 * 3];
@@ -116,7 +118,8 @@ fn main() {
     let mut next_frame = std::time::Instant::now() + frame_time;
 
     cpu.run_with_callback(move |cpu| {
-        // println!("PC: {:x} -> {:x}",cpu.program_counter,cpu.mem_read(cpu.program_counter));
+        println!("{}",trace::trace(&cpu));
+
         handle_user_input(cpu, &mut event_pump);
 
         cpu.mem_write(0xfe, rng.random_range(1..16));
@@ -127,9 +130,9 @@ fn main() {
             canvas.present();
         }
 
-        if let Some(remaing) = next_frame.checked_duration_since(std::time::Instant::now()){
-            if remaing > std::time::Duration::from_millis(1) {
-                std::thread::sleep(remaing - std::time::Duration::from_millis(1));
+        if let Some(remaining) = next_frame.checked_duration_since(std::time::Instant::now()){
+            if remaining > std::time::Duration::from_millis(1) {
+                std::thread::sleep(remaining - std::time::Duration::from_millis(1));
             }
             while std::time::Instant::now() < next_frame{
                 std::hint::spin_loop();
