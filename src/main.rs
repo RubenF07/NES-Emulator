@@ -15,6 +15,7 @@ pub mod opcodes;
 pub mod bus;
 pub mod cartridge;
 pub mod trace;
+pub mod ppu;
 
 
 #[macro_use]
