@@ -50,4 +50,8 @@ impl ControlRegister {
         self.clear();
         self.insert(ControlRegister::from_bits_truncate(data));
     }
+
+    pub fn generate_vblank_nmi(&self) -> bool{
+        self.contains(ControlRegister::GENERATE_NMI)
+    }
 }

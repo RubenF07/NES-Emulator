@@ -28,7 +28,7 @@ pub fn trace(cpu: &CPU) -> String{
         2 => {
             let base_addr = byte1;
             let mem_addr = if opcode.mode != AddressingMode::NoneAddressing{
-                cpu.get_op_addr_offset(&opcode.mode, 1)
+                cpu.get_op_addr_offset(&opcode.mode, 1).0
             }
             else{
                 (cpu.program_counter + 2).wrapping_add((base_addr as i8) as u16)
@@ -54,7 +54,7 @@ pub fn trace(cpu: &CPU) -> String{
         3 => {
             let base_addr = ((byte2 as u16) << 8) | byte1 as u16;
             let mem_addr = if opcode.mode != AddressingMode::NoneAddressing{
-                cpu.get_op_addr_offset(&opcode.mode, 1)
+                cpu.get_op_addr_offset(&opcode.mode, 1).0
             }
             else{
                 if base_addr & 0x00ff == 0x00ff{

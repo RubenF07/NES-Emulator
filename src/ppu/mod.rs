@@ -21,8 +21,11 @@ pub struct NesPPU {
     status: StatusRegister,
     oam: OAM,
 
-
     internal_data_buf: u8,
+
+    scanline: u16,
+    cycles: usize,
+    pub nmi_interrupt: Option<u8>,
 }
 
 pub trait PPU {
@@ -56,6 +59,10 @@ impl NesPPU {
             oam: OAM::new(),
 
             internal_data_buf: 0,
+
+            scanline: 0,
+            cycles: 0,
+            nmi_interrupt: None,
         }
     }
 
@@ -86,10 +93,37 @@ impl NesPPU {
             _ => vram_index,
         }
     }
+
+    pub fn tick(&mut self, cycles: u8) -> bool {
+        self.cycles += cycles as usize;
+
+        if self.cycles >= 341{ // each scanline lasts 341 ppu cycles
+            self.cycles -= 341;
+            self.scanline += 1;
+
+            if self.scanline == 241{
+                self.status.set_vblank(true);
+                self.status.set_sprite_zero_hit(false);
+
+                if self.ctrl.generate_vblank_nmi(){
+                    self.nmi_interrupt = Some(1);
+                }
+            }
+
+            if self.scanline >= 262{
+                self.scanline = 0;
+                self.nmi_interrupt = None;
+
+                self.status.set_sprite_zero_hit(false);
+                self.status.set_vblank(false);
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
-impl PPU for NesPPU {
-    
+impl PPU for NesPPU { 
     fn read_data(&mut self) -> u8 {
         let addr = self.addr.get();
         self.increment_vram_addr();
@@ -139,7 +173,12 @@ impl PPU for NesPPU {
     }
     
     fn write_to_ctrl(&mut self, val: u8){
+        let pre_nmi_status = self.ctrl.generate_vblank_nmi();
         self.ctrl.update(val);
+
+        if !pre_nmi_status && self.ctrl.generate_vblank_nmi() && self.status.in_vblank(){
+            self.nmi_interrupt = Some(1);
+        }
     }
 
     fn write_to_mask(&mut self, val: u8) {

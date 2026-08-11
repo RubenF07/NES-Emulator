@@ -31,4 +31,12 @@ impl StatusRegister {
     pub fn set_vblank(&mut self, val: bool){
         self.set(StatusRegister::V_BLANK, val);
     }
+
+    pub fn in_vblank(&self) -> bool{
+        self.contains(StatusRegister::V_BLANK)
+    }
+
+    pub fn set_sprite_zero_hit(&mut self, val: bool){
+        self.set(StatusRegister::SPRITE_0_HIT, val);
+    }
 }
