@@ -9,6 +9,7 @@ use cpu::{CPU,Mem};
 
 use crate::bus::Bus;
 use crate::cartridge::Rom;
+use crate::tile_renderer::show_tile;
 
 pub mod cpu;
 pub mod opcodes;
@@ -16,6 +17,8 @@ pub mod bus;
 pub mod cartridge;
 pub mod trace;
 pub mod ppu;
+pub mod render;
+pub mod tile_renderer;
 
 
 #[macro_use]
@@ -102,45 +105,70 @@ fn main() {
     
 
     // load program
-    let bytes: Vec<u8> = std::fs::read("nestest.nes").unwrap();
+    let bytes: Vec<u8> = std::fs::read("cartridge_roms/pacman.nes").unwrap();
     let rom = Rom::new(&bytes).unwrap();
 
 
-    let mut cpu = CPU::new(Bus::new(rom));
-    // cpu.load(game_code);
-    cpu.reset();
-    cpu.program_counter = 0xc000;
+    // let mut cpu = CPU::new(Bus::new(rom));
+    // // cpu.load(game_code);
+    // cpu.reset();
+    // cpu.program_counter = 0xc000;
 
-    // handle screen
-    let mut screen_state = [0 as u8; 32 * 32 * 3];
-    let mut rng = rand::rng();
+    // // handle screen
+    // let mut screen_state = [0 as u8; 32 * 32 * 3];
+    // let mut rng = rand::rng();
 
-    let frame_time = std::time::Duration::from_nanos(100_000);
-    let mut next_frame = std::time::Instant::now() + frame_time;
+    // let frame_time = std::time::Duration::from_nanos(100_000);
+    // let mut next_frame = std::time::Instant::now() + frame_time;
 
-    cpu.run_with_callback(move |cpu| {
-        println!("{}",trace::trace(&cpu));
+    // cpu.run_with_callback(move |cpu| {
+    //     println!("{}",trace::trace(&cpu));
 
-        handle_user_input(cpu, &mut event_pump);
+    //     handle_user_input(cpu, &mut event_pump);
 
-        cpu.mem_write(0xfe, rng.random_range(1..16));
+    //     cpu.mem_write(0xfe, rng.random_range(1..16));
 
-        if read_screen_state(cpu, &mut screen_state){
-            texture.update(None, &screen_state, 32 * 3).unwrap();
-            canvas.copy(&texture, None, None).unwrap();
-            canvas.present();
-        }
+    //     if read_screen_state(cpu, &mut screen_state){
+    //         texture.update(None, &screen_state, 32 * 3).unwrap();
+    //         canvas.copy(&texture, None, None).unwrap();
+    //         canvas.present();
+    //     }
 
-        if let Some(remaining) = next_frame.checked_duration_since(std::time::Instant::now()){
-            if remaining > std::time::Duration::from_millis(1) {
-                std::thread::sleep(remaining - std::time::Duration::from_millis(1));
+    //     if let Some(remaining) = next_frame.checked_duration_since(std::time::Instant::now()){
+    //         if remaining > std::time::Duration::from_millis(1) {
+    //             std::thread::sleep(remaining - std::time::Duration::from_millis(1));
+    //         }
+    //         while std::time::Instant::now() < next_frame{
+    //             std::hint::spin_loop();
+    //         }
+    //     }
+    //     next_frame += frame_time;
+    // });
+
+    // Tile Test
+    let mut tile_n: usize = 0;
+    let tile_frame = show_tile(&rom.chr_rom, 1, tile_n);
+
+    texture.update(None, &tile_frame.data, 256*3).unwrap();
+    canvas.copy(&texture, None, None).unwrap();
+    canvas.present();
+
+    loop{
+        for event in event_pump.poll_iter(){
+            match event{
+                Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), ..} => std::process::exit(0),
+                Event::KeyDown{ keycode: Some(Keycode::Space) ,..} => {
+                    tile_n += 1;
+                    let tile_frame = show_tile(&rom.chr_rom, 1, tile_n);
+
+                    texture.update(None, &tile_frame.data, 256*3).unwrap();
+                    canvas.copy(&texture, None, None).unwrap();
+                    canvas.present();
+                }
+                _ => {}
             }
-            while std::time::Instant::now() < next_frame{
-                std::hint::spin_loop();
-            }
         }
-        next_frame += frame_time;
-    });
+    }
 
     print!("Exiting...");
 }
