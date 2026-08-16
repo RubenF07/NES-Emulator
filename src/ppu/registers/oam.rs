@@ -1,6 +1,6 @@
 pub struct OAM{
     addr: u8,
-    data: [u8; 256],
+    pub data: [u8; 256],
 }
 
 impl OAM{

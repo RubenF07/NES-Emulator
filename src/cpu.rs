@@ -1,5 +1,6 @@
 use crate::opcodes::OPS_CODE_MAP;
 use crate::bus::Bus;
+
 bitflags! {
     /// # Status Register (P) https://www.nesdev.org/wiki/Status_flags
     ///
@@ -29,14 +30,16 @@ bitflags! {
 const STACK: u16 = 0x0100;
 const STACK_RESET: u8 = 0xfd;
 
-pub struct CPU {
+pub struct CPU<'a> {
     pub register_a: u8,
     pub register_x: u8,
     pub register_y: u8,
     pub status: CpuFlags,
     pub program_counter: u16,
     pub stack_pointer: u8,
-    pub bus: Bus
+    pub bus: Bus<'a>,
+
+    unofficial_rmw: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,12 +59,12 @@ pub enum AddressingMode {
 }
 
 pub trait Mem{
-    fn mem_read(&self, addr: u16) -> u8;
+    fn mem_read(&mut self, addr: u16) -> u8;
 
     fn mem_write(&mut self, addr: u16, data: u8);
 
     // read Little-Endian 16bit vals
-    fn mem_read_u16(&self, pos: u16) -> u16 {
+    fn mem_read_u16(&mut self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
         let hi = self.mem_read(pos + 1) as u16;
         return (hi << 8) | (lo as u16)
@@ -77,8 +80,8 @@ pub trait Mem{
     }
 }
 
-impl Mem for CPU{
-    fn mem_read(&self, addr: u16) -> u8 {
+impl Mem for CPU<'_>{
+    fn mem_read(&mut self, addr: u16) -> u8 {
         self.bus.mem_read(addr)
     }
     
@@ -86,7 +89,7 @@ impl Mem for CPU{
         self.bus.mem_write(addr, data);
     }
     
-    fn mem_read_u16(&self, addr: u16) -> u16 {
+    fn mem_read_u16(&mut self, addr: u16) -> u16 {
         self.bus.mem_read_u16(addr)
     }
 
@@ -99,8 +102,8 @@ fn page_cross(addr1: u16, addr2: u16) -> bool{
         addr1 & 0xff00 != addr2 & 0xff00
     }
 
-impl CPU {
-    pub fn new(bus: Bus) -> Self {
+impl<'a> CPU<'a> {
+    pub fn new<'b>(bus: Bus<'b>) -> CPU<'b> {
         CPU {
             register_a: 0,
             register_x: 0,
@@ -109,6 +112,8 @@ impl CPU {
             program_counter: 0x8000,
             stack_pointer: STACK_RESET,
             bus: bus,
+
+            unofficial_rmw: false
         }
     }
 
@@ -124,7 +129,7 @@ impl CPU {
         
         self.add_to_register_a(mem_val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
 
     // Logical AND
@@ -134,7 +139,7 @@ impl CPU {
 
         self.set_register_a(self.register_a & val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
 
     // Arethmatic shift left
@@ -199,7 +204,7 @@ impl CPU {
         
         self.set_register_a(self.register_a ^ val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
     
     // Increment memort
@@ -276,7 +281,7 @@ impl CPU {
         
         self.set_register_a(val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
     
     // Load val into register X
@@ -286,7 +291,7 @@ impl CPU {
         
         self.set_register_x(val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
     
     // Load val into register Y
@@ -296,7 +301,7 @@ impl CPU {
         
         self.set_register_y(val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
     
     // Logical shift right
@@ -324,7 +329,7 @@ impl CPU {
         
         self.set_register_a(self.register_a | val);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
 
     // Push processor status
@@ -418,7 +423,7 @@ impl CPU {
 
         self.add_to_register_a(b_neg as u8);
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
     
     // Store register A value at mem address
@@ -459,14 +464,16 @@ impl CPU {
     // AND, ROR, bit change
     fn arr(&mut self, mode: &AddressingMode){
         self.and(mode);
-        self.ror(mode);
+        self.ror_accumulator();
         
         let res = self.register_a;
         
         let (bit5,bit6) = ((res >> 5) & 0b1, (res >> 6) & 0b1);
         
-        self.status.set(CpuFlags::CARRY, bit5 == 1);
-        self.status.set(CpuFlags::OVERFLOW, (bit6 ^ bit5) == 1);
+        self.status.set(CpuFlags::CARRY, bit6 == 1);
+        self.status.set(CpuFlags::OVERFLOW, (bit5 ^ bit6) == 1);
+
+        self.update_zero_and_negative_flags(res);
     }
     
     // X AND A - val
@@ -586,7 +593,7 @@ impl CPU {
 
         self.update_zero_and_negative_flags(compare_with.wrapping_sub(val));
 
-        if page_crossed {self.bus.tick(1);}
+        if page_crossed && !self.unofficial_rmw {self.bus.tick(1);}
     }
 
     fn stack_pop(&mut self) -> u8 {
@@ -621,7 +628,10 @@ impl CPU {
     pub fn reset(&mut self) {
         self.register_a = 0;
         self.register_x = 0;
+        self.register_y = 0;
         self.status = CpuFlags::from_bits_truncate(0b100100);
+
+        self.stack_pointer = STACK_RESET;
         
         self.program_counter = self.mem_read_u16(0xFFFC);
     }
@@ -844,7 +854,7 @@ impl CPU {
                 // ALR
                 0x4b => {
                     self.and(mode);
-                    self.lsr(mode);
+                    self.lsr_accumulator();
                 }
 
                 // ANC
@@ -870,36 +880,42 @@ impl CPU {
 
                 // DCP
                 0xc7 | 0xd7 | 0xcf | 0xdf | 0xdb | 0xc3 | 0xd3 => {
+                    self.unofficial_rmw = true;
                     self.dec(mode);
                     self.compare(mode, self.register_a);
                 }
-
+                
                 // ISC
                 0xe7 |0xf7 |0xef |0xff |0xfb |0xe3 |0xf3 => {
+                    self.unofficial_rmw = true;
                     self.inc(mode);
                     self.sbc(mode);
                 }
-
+                
                 // RLA
                 0x27 | 0x37 | 0x2f | 0x3f | 0x3b | 0x23 | 0x33 => {
+                    self.unofficial_rmw = true;
                     self.rol(mode);
                     self.and(mode);
                 }
-
+                
                 // RRA
                 0x67 | 0x77 | 0x6f | 0x7f | 0x7b | 0x63 | 0x73 => {
+                    self.unofficial_rmw = true;
                     let val = self.ror(mode);
                     self.add_to_register_a(val);
                 }
-
+                
                 // SLO
                 0x07 | 0x17 | 0x0f | 0x1f | 0x1b | 0x03 | 0x13 => {
+                    self.unofficial_rmw = true;
                     self.asl(mode);
                     self.ora(mode);
                 }
-
+                
                 // SRE
                 0x47 | 0x57 | 0x4f | 0x5f | 0x5b | 0x43 | 0x53 => {
+                    self.unofficial_rmw = true;
                     self.lsr(mode);
                     self.eor(mode);
                 }
@@ -924,7 +940,8 @@ impl CPU {
 
                 _ => todo!()
             }
-            
+            self.unofficial_rmw = false;
+
             self.bus.tick(op_spec.cycles);
             
             if !jumped{
@@ -938,11 +955,11 @@ impl CPU {
     // ------------------------------------
     
     // (addr, page_cross)
-    fn get_operand_address(&self, mode: &AddressingMode) -> (u16, bool) {
+    fn get_operand_address(&mut self, mode: &AddressingMode) -> (u16, bool) {
         self.get_op_addr_offset(mode, 0)
     }
     
-    pub fn get_op_addr_offset(&self, mode: &AddressingMode, offset: u16) -> (u16, bool){
+    pub fn get_op_addr_offset(&mut self, mode: &AddressingMode, offset: u16) -> (u16, bool){
         let pc_val = self.program_counter + offset;
 
         match mode {
@@ -1023,7 +1040,7 @@ impl CPU {
         self.stack_push_u16(self.program_counter);
         let mut flag = self.status.clone();
         flag.set(CpuFlags::BREAK, false);
-        flag.set(CpuFlags::BREAK, true);
+        flag.set(CpuFlags::BREAK2, true);
 
         self.stack_push(flag.bits());
         self.status.insert(CpuFlags::INTERRUPT_DISABLE);
@@ -1040,10 +1057,11 @@ impl CPU {
 mod test {
     use super::*;
     use crate::cartridge::test::test_rom;
+    use crate::ppu::NesPPU;
 
     #[test]
     fn test_0xa9_lda_immediate_load_data() {
-        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 0x05, 0x00])));
+        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 0x05, 0x00]), |ppu: &NesPPU| {}));
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x05);
@@ -1053,7 +1071,7 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_zero_flag(){
-        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9,0x00,0x00])));
+        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9,0x00,0x00]), |ppu: &NesPPU| {}));
         cpu.run();
 
         assert!(cpu.status.bits() & 0b0000_0010 == 0b10);
@@ -1061,7 +1079,7 @@ mod test {
 
     #[test]
     fn test_0xaa_tax_zero_a_to_x(){
-        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 10, 0xaa, 0x00])));
+        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 10, 0xaa, 0x00]), |ppu: &NesPPU| {}));
         cpu.run();
         
         assert_eq!(cpu.register_x, 10)
@@ -1069,7 +1087,7 @@ mod test {
     
     #[test]
     fn test_inx(){
-        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xe8, 0xe8, 0x00])));
+        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xe8, 0xe8, 0x00]), |ppu: &NesPPU| {}));
         cpu.run();
 
         assert_eq!(cpu.register_x, 2)        
@@ -1077,7 +1095,7 @@ mod test {
     
     #[test]
     fn test_inx_overflow(){
-        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 0xff, 0xaa, 0xe8, 0xe8, 0x00])));
+        let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 0xff, 0xaa, 0xe8, 0xe8, 0x00]), |ppu: &NesPPU| {}));
         cpu.run();
 
         assert_eq!(cpu.register_x, 1)        
@@ -1085,7 +1103,7 @@ mod test {
     
     #[test]
    fn test_5_ops_working_together() {
-       let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00])));
+       let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]), |ppu: &NesPPU| {}));
        cpu.run();
  
        assert_eq!(cpu.register_x, 0xc1)
@@ -1093,7 +1111,7 @@ mod test {
 
    #[test]
    fn test_lda_from_memory() {
-       let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa5, 0x10, 0x00])));
+       let mut cpu = CPU::new(Bus::new(test_rom(vec![0xa5, 0x10, 0x00]), |ppu: &NesPPU| {}));
        cpu.mem_write(0x10, 0x55);
 
        cpu.run();

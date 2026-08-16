@@ -54,4 +54,21 @@ impl ControlRegister {
     pub fn generate_vblank_nmi(&self) -> bool{
         self.contains(ControlRegister::GENERATE_NMI)
     }
+
+    pub fn bkgr_ptrn_addr(&self) -> u16{
+        if self.contains(ControlRegister::BACKGROUND_PATTERN_ADDR){
+            0x1000
+        }
+        else{
+            0
+        }
+    }
+    pub fn sprt_ptrn_addr(&self) -> u16{
+        if self.contains(ControlRegister::SPRITE_PATTERN_ADDR){
+            0x1000
+        }
+        else{
+            0
+        }
+    }
 }

@@ -19,8 +19,8 @@ impl Frame{
             self.data[base + 1] = rgb.1;
             self.data[base + 2] = rgb.2;
         }
-        else{
-            panic!("Pixel idx out of bounds")
-        }
+        // else{
+        //     panic!("Pixel idx out of bounds")
+        // }
     }
 }

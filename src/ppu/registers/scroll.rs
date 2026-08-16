@@ -36,4 +36,8 @@ impl ScrollRegister{
         }
         self.first_write = !self.first_write; 
     }
+
+    pub fn reset_latch(&mut self){
+        self.first_write = true;
+    }
 }

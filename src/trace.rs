@@ -2,7 +2,7 @@ use crate::cpu::{AddressingMode, CPU, Mem};
 use crate::opcodes::OPS_CODE_MAP;
 
 
-pub fn trace(cpu: &CPU) -> String{
+pub fn trace(cpu: &mut CPU) -> String{
     let opcode = OPS_CODE_MAP.get(&cpu.mem_read(cpu.program_counter)).expect(&format!("Failed to read opcode: {:02x}",cpu.mem_read(cpu.program_counter)));
     let bytes = opcode.bytes;
 

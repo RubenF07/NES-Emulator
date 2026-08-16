@@ -19,7 +19,7 @@ pub struct NesPPU {
     mask: MaskRegister,
     scroll: ScrollRegister,
     status: StatusRegister,
-    oam: OAM,
+    pub oam: OAM,
 
     internal_data_buf: u8,
 
@@ -121,6 +121,14 @@ impl NesPPU {
         }
         return false;
     }
+
+    pub fn bkgr_ptrn_addr(&self) -> u16{
+        self.ctrl.bkgr_ptrn_addr()
+    }
+    pub fn sprt_ptrn_addr(&self) -> u16{
+        self.ctrl.sprt_ptrn_addr()
+    }
+
 }
 
 impl PPU for NesPPU { 
@@ -139,9 +147,17 @@ impl PPU for NesPPU {
                 self.internal_data_buf = self.vram[self.mirror_vram_addr(addr) as usize];
                 res
             }
-            0x3000..=0x3eff => panic!("addresses 0x3000..0x3eff is not usable, {:04x}",addr),
-            0x3f00..=0x3fff => {
-                self.palette_table[(addr - 0x3f00) as usize]
+
+            0x3000..=0x3eff => unimplemented!("addresses 0x3000..0x3eff is not usable, {:04x}",addr),
+            
+            // //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            // 0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
+            //     let add_mirror = addr - 0x10;
+            //     self.palette_table[(add_mirror - 0x3f00) as usize]
+            // }
+            
+            0x3f00..=0x3fff => { // Palette + mirror addresses
+                self.palette_table[(addr % 0x20) as usize]
             }
             _ => panic!("unexpected mirror access to {:04x}",addr)
         }
@@ -154,18 +170,22 @@ impl PPU for NesPPU {
             0x2000..=0x2fff => {
                 self.vram[self.mirror_vram_addr(addr) as usize] = data;
             }
-            0x3000..=0x3eff => unimplemented!("shouldn't use addr: {:04}",addr),
-
-            //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-            0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
-                let add_mirror = addr - 0x10;
-                self.palette_table[(add_mirror - 0x3f00) as usize] = data;
+            // 0x3000..=0x3eff => unimplemented!("shouldn't use addr: {:04x}",addr),
+            0x3000..=0x3eff => {
+                self.vram[self.mirror_vram_addr(addr) as usize] = data;
             }
-            0x3f00..=0x3fff => {
-                self.palette_table[(addr - 0x3f00) as usize] = data;
+
+            // //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            // 0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
+            //     let add_mirror = addr - 0x10;
+            //     self.palette_table[(add_mirror - 0x3f00) as usize] = data;
+            // }
+            0x3f00..=0x3fff => { // Palette + mirror addresses
+                self.palette_table[(addr % 0x20) as usize] = data;
             }
             _ => panic!("Unexpected address write: {:04x}",addr),
         }
+        self.increment_vram_addr();
     }
 
     fn write_to_ppu_addr(&mut self, val: u8){
@@ -186,8 +206,13 @@ impl PPU for NesPPU {
     }
 
     fn read_status(&mut self) -> u8 {
+        // self.addr.reset_latch();
+        // self.status.get_status()
+        let data = self.status.get_status();
+        self.status.set_vblank(false);
         self.addr.reset_latch();
-        self.status.get_status()
+        self.scroll.reset_latch();
+        data
     }
 
     fn write_to_scroll(&mut self, val: u8) {
