@@ -1,5 +1,6 @@
 use crate::cpu::Mem;
 use crate::cartridge::Rom;
+use crate::joypad::Joypad;
 use crate::ppu::{NesPPU, PPU};
 
 //  _______________ $10000  _______________
@@ -37,13 +38,15 @@ pub struct Bus<'call>{
     ppu: NesPPU,
 
     cycles: usize,
-    gameloop_callback: Box<dyn FnMut(&NesPPU) + 'call>,
+    gameloop_callback: Box<dyn FnMut(&NesPPU, &mut Joypad) + 'call>,
+
+    joypad: Joypad
 }
 
 impl<'a> Bus<'a>{
     pub fn new<'call, F>(rom: Rom, gameloop_callback: F) -> Bus<'call>
     where 
-        F: FnMut(&NesPPU) + 'call,
+        F: FnMut(&NesPPU, &mut Joypad) + 'call,
     {
         let ppu = NesPPU::new(rom.chr_rom, rom.screen_mirroring);
         Bus{
@@ -53,6 +56,8 @@ impl<'a> Bus<'a>{
 
             cycles: 0,
             gameloop_callback: Box::from(gameloop_callback),
+
+            joypad: Joypad::new(),
         }
     }
 
@@ -79,7 +84,7 @@ impl<'a> Bus<'a>{
 
         let new_frame = self.ppu.tick(cycles * 3); // ppu cycles ~3x faster than cpu
         if new_frame{
-            (self.gameloop_callback)(&self.ppu)
+            (self.gameloop_callback)(&self.ppu, &mut self.joypad)
         }
     }
 
@@ -110,7 +115,7 @@ impl Mem for Bus<'_>{
 
             0x4000..=0x4015 => {0} // APU - Ignore
 
-            0x4016 => {0} // Joypad 1 - Ignore
+            0x4016 => self.joypad.get_button(), // Joypad 1 - Ignore
 
             0x4017 => {0} // Joypad 2 - Ignore
             
@@ -157,7 +162,7 @@ impl Mem for Bus<'_>{
             }
             0x4000..=0x4013 | 0x4015 => {} // APU - Ignore
 
-            0x4016 => {} // Joypad 1 - Ignore
+            0x4016 => self.joypad.set_strobe(data & 1 == 1), // Joypad 1
         
             0x4017 => {} // Joypad 2 - Ignore
 
