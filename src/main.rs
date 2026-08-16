@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 
-use rand::RngExt;
 use sdl3::event::Event;
-use sdl3::EventPump;
 use sdl3::keyboard::Keycode;
-use sdl3::pixels::Color;
 use sdl3::pixels::PixelFormat;
 
-use cpu::{CPU,Mem};
+use cpu::CPU;
 
 use crate::bus::Bus;
 use crate::joypad::Joypad;
