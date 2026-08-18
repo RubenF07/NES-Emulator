@@ -15,9 +15,9 @@ pub struct NesPPU {
     pub vram: [u8; 2048],
     
     addr: AddrRegister,
-    ctrl: ControlRegister,
+    pub ctrl: ControlRegister,
     mask: MaskRegister,
-    scroll: ScrollRegister,
+    pub scroll: ScrollRegister,
     status: StatusRegister,
     pub oam: OAM,
 
@@ -98,6 +98,10 @@ impl NesPPU {
         self.cycles += cycles as usize;
 
         if self.cycles >= 341{ // each scanline lasts 341 ppu cycles
+            if self.is_sprite_0_hit(self.cycles){
+                self.status.set_sprite_zero_hit(true);
+            }
+            
             self.cycles -= 341;
             self.scanline += 1;
 
@@ -121,6 +125,14 @@ impl NesPPU {
         }
         return false;
     }
+
+    fn is_sprite_0_hit(&self, cycle: usize) -> bool{
+        let y = self.oam.data[0] as usize;
+        let x = self.oam.data[0] as usize;
+
+        (y == self.scanline as usize) && x <= cycle && self.mask.show_sprites()
+    }
+
 
     pub fn bkgr_ptrn_addr(&self) -> u16{
         self.ctrl.bkgr_ptrn_addr()
@@ -150,11 +162,11 @@ impl PPU for NesPPU {
 
             0x3000..=0x3eff => unimplemented!("addresses 0x3000..0x3eff is not usable, {:04x}",addr),
             
-            // //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-            // 0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
-            //     let add_mirror = addr - 0x10;
-            //     self.palette_table[(add_mirror - 0x3f00) as usize]
-            // }
+            //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
+                let add_mirror = addr - 0x10;
+                self.palette_table[(add_mirror - 0x3f00) as usize]
+            }
             
             0x3f00..=0x3fff => { // Palette + mirror addresses
                 self.palette_table[(addr % 0x20) as usize]
@@ -175,11 +187,11 @@ impl PPU for NesPPU {
                 self.vram[self.mirror_vram_addr(addr) as usize] = data;
             }
 
-            // //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-            // 0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
-            //     let add_mirror = addr - 0x10;
-            //     self.palette_table[(add_mirror - 0x3f00) as usize] = data;
-            // }
+            //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            0x3f10| 0x3f14 | 0x3f18 | 0x3f1c => {
+                let add_mirror = addr - 0x10;
+                self.palette_table[(add_mirror - 0x3f00) as usize] = data;
+            }
             0x3f00..=0x3fff => { // Palette + mirror addresses
                 self.palette_table[(addr % 0x20) as usize] = data;
             }
@@ -235,7 +247,6 @@ impl PPU for NesPPU {
         self.oam.write_dma(data);
     }
 }
-
 
 #[cfg(test)]
 pub mod test {

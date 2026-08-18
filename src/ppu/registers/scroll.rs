@@ -13,8 +13,8 @@
 // ++++-++++- Y scroll bits 7-0 (bit 8 in PPUCTRL bit 1)
 
 pub struct ScrollRegister{
-    x_scroll: u8,
-    y_scroll: u8,
+    pub x_scroll: u8,
+    pub y_scroll: u8,
     first_write: bool,
 }
 

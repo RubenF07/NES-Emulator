@@ -34,4 +34,8 @@ impl MaskRegister {
         self.clear();
         self.insert(MaskRegister::from_bits_truncate(data));
     }
+
+    pub fn show_sprites(&self) -> bool{
+        self.contains(MaskRegister::SPRITE_RENDERING)
+    }
 }

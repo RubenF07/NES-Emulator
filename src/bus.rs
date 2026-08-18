@@ -71,20 +71,14 @@ impl<'a> Bus<'a>{
     }
 
     pub fn tick(&mut self, cycles: u8){
-        // self.cycles += cycles as usize;
-
-        // let nmi_bef = self.ppu.nmi_interrupt.is_some();
-        // self.ppu.tick(cycles * 3); // ppu cycles ~3x faster than cpu
-        // let nmi_aft = self.ppu.nmi_interrupt.is_some();
-
-        // if !nmi_bef && nmi_aft{
-        //     (self.gameloop_callback)(&self.ppu);
-        // }
         self.cycles += cycles as usize;
 
-        let new_frame = self.ppu.tick(cycles * 3); // ppu cycles ~3x faster than cpu
-        if new_frame{
-            (self.gameloop_callback)(&self.ppu, &mut self.joypad)
+        let nmi_bef = self.ppu.nmi_interrupt.is_some();
+        self.ppu.tick(cycles * 3); // ppu cycles ~3x faster than cpu
+        let nmi_aft = self.ppu.nmi_interrupt.is_some();
+
+        if !nmi_bef && nmi_aft{
+            (self.gameloop_callback)(&self.ppu, &mut self.joypad);
         }
     }
 

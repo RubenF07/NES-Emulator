@@ -358,9 +358,10 @@ impl<'a> CPU<'a> {
     
     // Rotate left
     fn rol_accumulator(&mut self){
+        let old_carry = self.status.contains(CpuFlags::CARRY) as u8;
         self.status.set(CpuFlags::CARRY, self.register_a >> 7 == 1);
         
-        self.set_register_a((self.register_a << 1) | (self.status.contains(CpuFlags::CARRY) as u8));
+        self.set_register_a((self.register_a << 1) | old_carry);
     }
     fn rol(&mut self, mode: &AddressingMode){
         let (addr, _page_crossed) = self.get_operand_address(mode);
@@ -372,7 +373,7 @@ impl<'a> CPU<'a> {
         let res = (val << 1) | old_carry;
         self.mem_write(addr, res);
         
-        self.status.set(CpuFlags::NEGATIVE, res & 0b1000_0000 != 0);
+        self.update_zero_and_negative_flags(res);
     }
     
     // Rotate right
@@ -392,7 +393,7 @@ impl<'a> CPU<'a> {
         let res = (val >> 1) | (old_carry as u8) << 7;
         self.mem_write(addr, res);
         
-        self.status.set(CpuFlags::NEGATIVE, res & 0b1000_0000 != 0);
+        self.update_zero_and_negative_flags(res);
         return res;
     }
 
